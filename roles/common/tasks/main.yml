@@ -1,11 +1,11 @@
 ---
 - name: Update apt cache
-  apt:
-    update_cache: yes
+  ansible.builtin.apt:
+    update_cache: true
     cache_valid_time: 3600
 
 - name: Install common packages
-  apt:
+  ansible.builtin.apt:
     name:
       - curl
       - vim
@@ -22,27 +22,28 @@
     state: present
 
 - name: Set timezone
-  timezone:
+  community.general.timezone:
     name: "{{ timezone }}"
 
 - name: Configure NTP
-  template:
+  ansible.builtin.template:
     src: ntp.conf.j2
     dest: /etc/ntp.conf
+    mode: '0644'
   notify: restart ntp
 
 - name: Enable and start NTP service
-  systemd:
+  ansible.builtin.systemd:
     name: ntp
-    enabled: yes
+    enabled: true
     state: started
 
 - name: Configure sysctl parameters
-  sysctl:
+  ansible.posix.sysctl:
     name: "{{ item.key }}"
     value: "{{ item.value }}"
     state: present
-    reload: yes
+    reload: true
   loop:
     - { key: 'net.ipv4.ip_forward', value: '1' }
     - { key: 'net.bridge.bridge-nf-call-iptables', value: '1' }
@@ -51,7 +52,7 @@
     - { key: 'fs.file-max', value: '131072' }
 
 - name: Load kernel modules
-  modprobe:
+  community.general.modprobe:
     name: "{{ item }}"
     state: present
   loop:
@@ -59,13 +60,14 @@
     - overlay
 
 - name: Persist kernel modules
-  lineinfile:
+  ansible.builtin.lineinfile:
     path: /etc/modules-load.d/k8s.conf
     line: "{{ item }}"
-    create: yes
+    create: true
+    mode: '0644'
   loop:
     - br_netfilter
     - overlay
 
 - name: Configure firewall rules
-  include_tasks: firewall.yml
+  ansible.builtin.include_tasks: firewall.yml

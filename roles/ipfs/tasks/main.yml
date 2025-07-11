@@ -24,25 +24,18 @@
           set -x
           user=ipfs
           repo="$IPFS_PATH"
-          
           if [ ! -f "$repo/config" ]; then
             ipfs init --profile=server
           fi
-          
           ipfs config Addresses.API /ip4/0.0.0.0/tcp/5001
           ipfs config Addresses.Gateway /ip4/0.0.0.0/tcp/8080
           ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin '["*"]'
           ipfs config --json API.HTTPHeaders.Access-Control-Allow-Methods '["PUT", "POST", "GET"]'
-          
-          # Configure clustering
           ipfs config --json Swarm.EnableAutoRelay true
           ipfs config --json Swarm.EnableRelayHop true
-          
-          # Performance tuning
           ipfs config --json Swarm.ConnMgr.LowWater 200
           ipfs config --json Swarm.ConnMgr.HighWater 300
           ipfs config Datastore.StorageMax "20GB"
-          
           chown -R "$user" "$repo"
   delegate_to: "{{ groups['k3s_master'][0] }}"
   run_once: true
@@ -68,62 +61,62 @@
             nodeSelector:
               node-role.kubernetes.io/worker: "true"
             initContainers:
-            - name: configure-ipfs
-              image: ipfs/go-ipfs:v{{ ipfs_version }}
-              command: ["sh", "/custom/configure-ipfs.sh"]
-              volumeMounts:
-              - name: ipfs-storage
-                mountPath: /data/ipfs
-              - name: configure-script
-                mountPath: /custom
-              env:
-              - name: IPFS_PATH
-                value: /data/ipfs
+              - name: configure-ipfs
+                image: ipfs/go-ipfs:v{{ ipfs_version }}
+                command: ["sh", "/custom/configure-ipfs.sh"]
+                volumeMounts:
+                  - name: ipfs-storage
+                    mountPath: /data/ipfs
+                  - name: configure-script
+                    mountPath: /custom
+                env:
+                  - name: IPFS_PATH
+                    value: /data/ipfs
             containers:
-            - name: ipfs
-              image: ipfs/go-ipfs:v{{ ipfs_version }}
-              command: ["ipfs", "daemon", "--migrate=true", "--routing=dhtclient"]
-              ports:
-              - containerPort: 4001
-                name: swarm
-              - containerPort: 5001
-                name: api
-              - containerPort: 8080
-                name: gateway
-              volumeMounts:
-              - name: ipfs-storage
-                mountPath: /data/ipfs
-              env:
-              - name: IPFS_PATH
-                value: /data/ipfs
-              resources:
-                requests:
-                  cpu: 500m
-                  memory: 1Gi
-                limits:
-                  cpu: 1000m
-                  memory: 1.5Gi
-              livenessProbe:
-                httpGet:
-                  path: /api/v0/id
-                  port: api
-                initialDelaySeconds: 30
-                periodSeconds: 10
-              readinessProbe:
-                httpGet:
-                  path: /api/v0/id
-                  port: api
-                initialDelaySeconds: 5
-                periodSeconds: 3
+              - name: ipfs
+                image: ipfs/go-ipfs:v{{ ipfs_version }}
+                command: ["ipfs", "daemon", "--migrate=true", "--routing=dhtclient"]
+                ports:
+                  - containerPort: 4001
+                    name: swarm
+                  - containerPort: 5001
+                    name: api
+                  - containerPort: 8080
+                    name: gateway
+                volumeMounts:
+                  - name: ipfs-storage
+                    mountPath: /data/ipfs
+                env:
+                  - name: IPFS_PATH
+                    value: /data/ipfs
+                resources:
+                  requests:
+                    cpu: 500m
+                    memory: 1Gi
+                  limits:
+                    cpu: 1000m
+                    memory: 1.5Gi
+                livenessProbe:
+                  httpGet:
+                    path: /api/v0/id
+                    port: api
+                  initialDelaySeconds: 30
+                  periodSeconds: 10
+                readinessProbe:
+                  httpGet:
+                    path: /api/v0/id
+                    port: api
+                  initialDelaySeconds: 5
+                  periodSeconds: 3
             volumes:
-            - name: configure-script
-              configMap:
-                name: ipfs-config
-                defaultMode: 0755
-            - name: ipfs-storage
-              hostPath:
-                path: /var/lib/ipfs
-                type: DirectoryOrCreate
+              - name: configure-script
+                configMap:
+                  name: ipfs-config
+                  defaultMode: "0755"
+              - name: ipfs-storage
+                hostPath:
+                  path: /var/lib/ipfs
+                  type: DirectoryOrCreate
   delegate_to: "{{ groups['k3s_master'][0] }}"
   run_once: true
 
@@ -140,9 +133,9 @@
       spec:
         type: ClusterIP
         ports:
-        - port: 4001
-          targetPort: 4001
-          name: swarm
+          - port: 4001
+            targetPort: 4001
+            name: swarm
         selector:
           app: ipfs
     - apiVersion: v1
@@ -153,9 +146,9 @@
       spec:
         type: ClusterIP
         ports:
-        - port: 5001
-          targetPort: 5001
-          name: api
+          - port: 5001
+            targetPort: 5001
+            name: api
         selector:
           app: ipfs
     - apiVersion: v1
@@ -166,9 +159,9 @@
       spec:
         type: ClusterIP
         ports:
-        - port: 8080
-          targetPort: 8080
-          name: gateway
+          - port: 8080
+            targetPort: 8080
+            name: gateway
         selector:
           app: ipfs
   delegate_to: "{{ groups['k3s_master'][0] }}"
@@ -191,19 +184,19 @@
           nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
       spec:
         tls:
-        - hosts:
-          - ipfs.{{ domain_name }}
-          secretName: ipfs-tls
+          - hosts:
+              - ipfs.{{ domain_name }}
+            secretName: ipfs-tls
         rules:
-        - host: ipfs.{{ domain_name }}
-          http:
-            paths:
-            - path: /
-              pathType: Prefix
-              backend:
-                service:
-                  name: ipfs-gateway
-                  port:
-                    number: 8080
+          - host: ipfs.{{ domain_name }}
+            http:
+              paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: ipfs-gateway
+                      port:
+                        number: 8080
   delegate_to: "{{ groups['k3s_master'][0] }}"
   run_once: true

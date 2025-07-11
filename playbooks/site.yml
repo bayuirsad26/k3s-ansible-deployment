@@ -1,20 +1,20 @@
 ---
 - name: Complete K3s Cluster Deployment
   hosts: all
-  gather_facts: yes
-  become: yes
-  
+  gather_facts: true
+  become: true
+
   pre_tasks:
     - name: Verify connectivity to all hosts
-      ping:
-      
+      ansible.builtin.ping:
+
     - name: Display deployment information
-      debug:
+      ansible.builtin.debug:
         msg: "Deploying K3s cluster for SummitEthic Software House"
 
   tasks:
     - name: Run complete deployment
-      include_tasks: "{{ item }}"
+      ansible.builtin.include_tasks: "{{ item }}"
       loop:
         - deploy-cluster.yml
         - deploy-monitoring.yml

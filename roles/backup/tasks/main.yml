@@ -1,6 +1,6 @@
 ---
 - name: Create backup directory structure
-  file:
+  ansible.builtin.file:
     path: "{{ item }}"
     state: directory
     mode: '0750'
@@ -26,24 +26,25 @@
   run_once: true
 
 - name: Install Velero CLI
-  get_url:
+  ansible.builtin.get_url:
     url: "https://github.com/vmware-tanzu/velero/releases/download/v1.12.1/velero-v1.12.1-linux-amd64.tar.gz"
     dest: /tmp/velero.tar.gz
+    mode: '0644'
   delegate_to: "{{ groups['k3s_master'][0] }}"
 
 - name: Extract and install Velero
-  unarchive:
+  ansible.builtin.unarchive:
     src: /tmp/velero.tar.gz
     dest: /tmp
-    remote_src: yes
+    remote_src: true
   delegate_to: "{{ groups['k3s_master'][0] }}"
 
 - name: Copy Velero binary
-  copy:
+  ansible.builtin.copy:
     src: /tmp/velero-v1.12.1-linux-amd64/velero
     dest: /usr/local/bin/velero
     mode: '0755'
-    remote_src: yes
+    remote_src: true
   delegate_to: "{{ groups['k3s_master'][0] }}"
 
 - name: Create backup CronJobs
@@ -65,22 +66,22 @@
                 hostNetwork: true
                 restartPolicy: OnFailure
                 containers:
-                - name: etcd-backup
-                  image: rancher/k3s:{{ k3s_version }}
-                  command:
-                  - /bin/sh
-                  - -c
-                  - |
-                    DATE=$(date +%Y%m%d_%H%M%S)
-                    k3s etcd-snapshot save --name "etcd-backup-${DATE}"
-                    k3s etcd-snapshot list
-                volumeMounts:
-                - name: backup
-                  mountPath: /backup
+                  - name: etcd-backup
+                    image: rancher/k3s:{{ k3s_version }}
+                    command:
+                      - /bin/sh
+                      - -c
+                      - |
+                        DATE=$(date +%Y%m%d_%H%M%S)
+                        k3s etcd-snapshot save --name "etcd-backup-${DATE}"
+                        k3s etcd-snapshot list
+                    volumeMounts:
+                      - name: backup
+                        mountPath: /backup
                 volumes:
-                - name: backup
-                  hostPath:
-                    path: "{{ backup_destination }}/etcd"
+                  - name: backup
+                    hostPath:
+                      path: "{{ backup_destination }}/etcd"
     - apiVersion: batch/v1
       kind: CronJob
       metadata:
@@ -94,29 +95,29 @@
               spec:
                 restartPolicy: OnFailure
                 containers:
-                - name: pg-backup
-                  image: postgres:{{ postgresql_version }}-alpine
-                  command:
-                  - /bin/sh
-                  - -c
-                  - |
-                    DATE=$(date +%Y%m%d_%H%M%S)
-                    PGPASSWORD=$POSTGRES_PASSWORD pg_dumpall -h postgresql -U postgres > /backup/postgresql-${DATE}.sql
-                    gzip /backup/postgresql-${DATE}.sql
-                    find /backup -name "*.gz" -mtime +{{ backup_retention_days }} -delete
-                  env:
-                  - name: POSTGRES_PASSWORD
-                    valueFrom:
-                      secretKeyRef:
-                        name: postgresql-secrets
-                        key: postgres-password
-                  volumeMounts:
-                  - name: backup
-                    mountPath: /backup
+                  - name: pg-backup
+                    image: postgres:{{ postgresql_version }}-alpine
+                    command:
+                      - /bin/sh
+                      - -c
+                      - |
+                        DATE=$(date +%Y%m%d_%H%M%S)
+                        PGPASSWORD=$POSTGRES_PASSWORD pg_dumpall -h postgresql -U postgres > /backup/postgresql-${DATE}.sql
+                        gzip /backup/postgresql-${DATE}.sql
+                        find /backup -name "*.gz" -mtime +{{ backup_retention_days }} -delete
+                    env:
+                      - name: POSTGRES_PASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: postgresql-secrets
+                            key: postgres-password
+                    volumeMounts:
+                      - name: backup
+                        mountPath: /backup
                 volumes:
-                - name: backup
-                  persistentVolumeClaim:
-                    claimName: backup-pvc
+                  - name: backup
+                    persistentVolumeClaim:
+                      claimName: backup-pvc
   delegate_to: "{{ groups['k3s_master'][0] }}"
   run_once: true
 
@@ -141,7 +142,9 @@
               labels:
                 severity: critical
               annotations:
-                summary: "Backup job {{ $labels.cronjob }} has not run in 24 hours"
-                description: "The backup job {{ $labels.cronjob }} in namespace {{ $labels.namespace }} has not executed successfully in the last 24 hours."
+                summary: "Backup job {{ '{{' }} $labels.cronjob {{ '}}' }} has not run in 24 hours"
+                description: >-
+                  The backup job {{ '{{' }} $labels.cronjob {{ '}}' }} in namespace {{ '{{' }} $labels.namespace {{ '}}' }}
+                  has not executed successfully in the last 24 hours.
   delegate_to: "{{ groups['k3s_master'][0] }}"
   run_once: true

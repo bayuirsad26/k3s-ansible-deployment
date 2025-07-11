@@ -117,84 +117,84 @@
             affinity:
               podAntiAffinity:
                 requiredDuringSchedulingIgnoredDuringExecution:
-                - labelSelector:
-                    matchExpressions:
-                    - key: app
-                      operator: In
-                      values:
-                      - redis
-                  topologyKey: kubernetes.io/hostname
+                  - labelSelector:
+                      matchExpressions:
+                        - key: app
+                          operator: In
+                          values:
+                            - redis
+                    topologyKey: kubernetes.io/hostname
             containers:
-            - name: redis
-              image: redis:{{ redis_version }}-alpine
-              command:
-                - redis-server
-                - /etc/redis/redis.conf
-                - --requirepass
-                - "$(REDIS_PASSWORD)"
-              env:
-              - name: REDIS_PASSWORD
-                valueFrom:
-                  secretKeyRef:
-                    name: redis-secret
-                    key: password
-              ports:
-              - containerPort: 6379
-                name: redis
-              resources:
-                requests:
-                  cpu: 300m
-                  memory: 512Mi
-                limits:
-                  cpu: 500m
-                  memory: 1Gi
-              volumeMounts:
-              - name: data
-                mountPath: /data
-              - name: config
-                mountPath: /etc/redis
-              livenessProbe:
-                tcpSocket:
-                  port: redis
-                initialDelaySeconds: 30
-                periodSeconds: 10
-              readinessProbe:
-                exec:
-                  command:
-                  - redis-cli
-                  - ping
-                initialDelaySeconds: 5
-                periodSeconds: 3
-            - name: sentinel
-              image: redis:{{ redis_version }}-alpine
-              command:
-                - redis-sentinel
-                - /etc/redis/sentinel.conf
-              ports:
-              - containerPort: 26379
-                name: sentinel
-              resources:
-                requests:
-                  cpu: 100m
-                  memory: 128Mi
-                limits:
-                  cpu: 200m
-                  memory: 256Mi
-              volumeMounts:
-              - name: config
-                mountPath: /etc/redis
+              - name: redis
+                image: redis:{{ redis_version }}-alpine
+                command:
+                  - redis-server
+                  - /etc/redis/redis.conf
+                  - --requirepass
+                  - "$(REDIS_PASSWORD)"
+                env:
+                  - name: REDIS_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: redis-secret
+                        key: password
+                ports:
+                  - containerPort: 6379
+                    name: redis
+                resources:
+                  requests:
+                    cpu: 300m
+                    memory: 512Mi
+                  limits:
+                    cpu: 500m
+                    memory: 1Gi
+                volumeMounts:
+                  - name: data
+                    mountPath: /data
+                  - name: config
+                    mountPath: /etc/redis
+                livenessProbe:
+                  tcpSocket:
+                    port: redis
+                  initialDelaySeconds: 30
+                  periodSeconds: 10
+                readinessProbe:
+                  exec:
+                    command:
+                      - redis-cli
+                      - ping
+                  initialDelaySeconds: 5
+                  periodSeconds: 3
+              - name: sentinel
+                image: redis:{{ redis_version }}-alpine
+                command:
+                  - redis-sentinel
+                  - /etc/redis/sentinel.conf
+                ports:
+                  - containerPort: 26379
+                    name: sentinel
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 128Mi
+                  limits:
+                    cpu: 200m
+                    memory: 256Mi
+                volumeMounts:
+                  - name: config
+                    mountPath: /etc/redis
             volumes:
-            - name: config
-              configMap:
-                name: redis-config
+              - name: config
+                configMap:
+                  name: redis-config
         volumeClaimTemplates:
-        - metadata:
-            name: data
-          spec:
-            accessModes: ["ReadWriteOnce"]
-            resources:
-              requests:
-                storage: 10Gi
+          - metadata:
+              name: data
+            spec:
+              accessModes: ["ReadWriteOnce"]
+              resources:
+                requests:
+                  storage: 10Gi
   delegate_to: "{{ groups['k3s_master'][0] }}"
   run_once: true
 
@@ -211,9 +211,9 @@
       spec:
         clusterIP: None
         ports:
-        - port: 6379
-          targetPort: 6379
-          name: redis
+          - port: 6379
+            targetPort: 6379
+            name: redis
         selector:
           app: redis
     - apiVersion: v1
@@ -224,9 +224,9 @@
       spec:
         type: ClusterIP
         ports:
-        - port: 26379
-          targetPort: 26379
-          name: sentinel
+          - port: 26379
+            targetPort: 26379
+            name: sentinel
         selector:
           app: redis
   delegate_to: "{{ groups['k3s_master'][0] }}"
@@ -252,24 +252,24 @@
               app: redis-exporter
           spec:
             containers:
-            - name: redis-exporter
-              image: oliver006/redis_exporter:latest
-              env:
-              - name: REDIS_ADDR
-                value: redis:6379
-              - name: REDIS_PASSWORD
-                valueFrom:
-                  secretKeyRef:
-                    name: redis-secret
-                    key: password
-              ports:
-              - containerPort: 9121
-              resources:
-                requests:
-                  cpu: 100m
-                  memory: 128Mi
-                limits:
-                  cpu: 200m
-                  memory: 256Mi
+              - name: redis-exporter
+                image: oliver006/redis_exporter:latest
+                env:
+                  - name: REDIS_ADDR
+                    value: redis:6379
+                  - name: REDIS_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: redis-secret
+                        key: password
+                ports:
+                  - containerPort: 9121
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 128Mi
+                  limits:
+                    cpu: 200m
+                    memory: 256Mi
   delegate_to: "{{ groups['k3s_master'][0] }}"
   run_once: true

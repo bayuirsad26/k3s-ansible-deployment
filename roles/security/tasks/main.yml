@@ -40,7 +40,7 @@
       spec:
         podSelector: {}
         policyTypes:
-        - Ingress
+          - Ingress
     - apiVersion: networking.k8s.io/v1
       kind: NetworkPolicy
       metadata:
@@ -51,18 +51,18 @@
           matchLabels:
             app: backend
         policyTypes:
-        - Ingress
+          - Ingress
         ingress:
-        - from:
-          - podSelector:
-              matchLabels:
-                app: frontend
-          - namespaceSelector:
-              matchLabels:
-                name: ingress-nginx
-          ports:
-          - protocol: TCP
-            port: 8080
+          - from:
+              - podSelector:
+                  matchLabels:
+                    app: frontend
+              - namespaceSelector:
+                  matchLabels:
+                    name: ingress-nginx
+            ports:
+              - protocol: TCP
+                port: 8080
     - apiVersion: networking.k8s.io/v1
       kind: NetworkPolicy
       metadata:
@@ -73,18 +73,18 @@
           matchLabels:
             app: postgresql
         policyTypes:
-        - Ingress
+          - Ingress
         ingress:
-        - from:
-          - namespaceSelector:
-              matchLabels:
-                name: applications
-            podSelector:
-              matchLabels:
-                app: backend
-          ports:
-          - protocol: TCP
-            port: 5432
+          - from:
+              - namespaceSelector:
+                  matchLabels:
+                    name: applications
+                podSelector:
+                  matchLabels:
+                    app: backend
+            ports:
+              - protocol: TCP
+                port: 5432
   delegate_to: "{{ groups['k3s_master'][0] }}"
   run_once: true
 
@@ -98,28 +98,28 @@
       metadata:
         name: developer-role
       rules:
-      - apiGroups: [""]
-        resources: ["pods", "services", "configmaps"]
-        verbs: ["get", "list", "watch"]
-      - apiGroups: ["apps"]
-        resources: ["deployments", "replicasets"]
-        verbs: ["get", "list", "watch"]
-      - apiGroups: [""]
-        resources: ["pods/log", "pods/exec"]
-        verbs: ["get", "create"]
+        - apiGroups: [""]
+          resources: ["pods", "services", "configmaps"]
+          verbs: ["get", "list", "watch"]
+        - apiGroups: ["apps"]
+          resources: ["deployments", "replicasets"]
+          verbs: ["get", "list", "watch"]
+        - apiGroups: [""]
+          resources: ["pods/log", "pods/exec"]
+          verbs: ["get", "create"]
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: ClusterRole
       metadata:
         name: admin-role
       rules:
-      - apiGroups: ["*"]
-        resources: ["*"]
-        verbs: ["*"]
+        - apiGroups: ["*"]
+          resources: ["*"]
+          verbs: ["*"]
   delegate_to: "{{ groups['k3s_master'][0] }}"
   run_once: true
 
 - name: Configure firewall rules on nodes
-  ufw:
+  community.general.ufw:
     rule: "{{ item.rule }}"
     port: "{{ item.port }}"
     proto: "{{ item.proto | default('tcp') }}"
@@ -135,13 +135,14 @@
   notify: reload ufw
 
 - name: Enable fail2ban for SSH protection
-  systemd:
+  ansible.builtin.systemd:
     name: fail2ban
-    enabled: yes
+    enabled: true
     state: started
 
 - name: Configure fail2ban for k3s
-  template:
+  ansible.builtin.template:
     src: fail2ban-k3s.conf.j2
     dest: /etc/fail2ban/jail.d/k3s.conf
+    mode: '0644'
   notify: restart fail2ban

@@ -39,55 +39,55 @@
             affinity:
               podAntiAffinity:
                 preferredDuringSchedulingIgnoredDuringExecution:
-                - weight: 100
-                  podAffinityTerm:
-                    labelSelector:
-                      matchExpressions:
-                      - key: app
-                        operator: In
-                        values:
-                        - frontend
-                    topologyKey: kubernetes.io/hostname
+                  - weight: 100
+                    podAffinityTerm:
+                      labelSelector:
+                        matchExpressions:
+                          - key: app
+                            operator: In
+                            values:
+                              - frontend
+                      topologyKey: kubernetes.io/hostname
             containers:
-            - name: frontend
-              image: "{{ registry_url }}/frontend-app:{{ frontend_version | default('latest') }}"
-              imagePullPolicy: Always
-              ports:
-              - containerPort: 3000
-                name: http
-              env:
-              - name: NODE_ENV
-                value: production
-              - name: REACT_APP_API_URL
-                value: "https://api.{{ domain_name }}"
-              - name: REACT_APP_VERSION
-                value: "{{ frontend_version | default('latest') }}"
-              resources:
-                requests:
-                  cpu: 500m
-                  memory: 1Gi
-                limits:
-                  cpu: 1000m
-                  memory: 2Gi
-              livenessProbe:
-                httpGet:
-                  path: /health
-                  port: 3000
-                initialDelaySeconds: 30
-                periodSeconds: 10
-              readinessProbe:
-                httpGet:
-                  path: /ready
-                  port: 3000
-                initialDelaySeconds: 5
-                periodSeconds: 5
-              volumeMounts:
-              - name: nginx-config
-                mountPath: /etc/nginx/conf.d
+              - name: frontend
+                image: "{{ registry_url }}/frontend-app:{{ frontend_version | default('latest') }}"
+                imagePullPolicy: Always
+                ports:
+                  - containerPort: 3000
+                    name: http
+                env:
+                  - name: NODE_ENV
+                    value: production
+                  - name: REACT_APP_API_URL
+                    value: "https://api.{{ domain_name }}"
+                  - name: REACT_APP_VERSION
+                    value: "{{ frontend_version | default('latest') }}"
+                resources:
+                  requests:
+                    cpu: 500m
+                    memory: 1Gi
+                  limits:
+                    cpu: 1000m
+                    memory: 2Gi
+                livenessProbe:
+                  httpGet:
+                    path: /health
+                    port: 3000
+                  initialDelaySeconds: 30
+                  periodSeconds: 10
+                readinessProbe:
+                  httpGet:
+                    path: /ready
+                    port: 3000
+                  initialDelaySeconds: 5
+                  periodSeconds: 5
+                volumeMounts:
+                  - name: nginx-config
+                    mountPath: /etc/nginx/conf.d
             volumes:
-            - name: nginx-config
-              configMap:
-                name: frontend-nginx-config
+              - name: nginx-config
+                configMap:
+                  name: frontend-nginx-config
   delegate_to: "{{ groups['k3s_master'][0] }}"
   run_once: true
 
@@ -105,43 +105,31 @@
           server {
               listen 3000;
               server_name _;
-              
               root /usr/share/nginx/html;
               index index.html;
-              
-              # Gzip compression
               gzip on;
               gzip_vary on;
               gzip_min_length 1024;
               gzip_types text/plain text/css text/xml text/javascript application/javascript application/xml+rss application/json;
-              
-              # Security headers
               add_header X-Frame-Options "SAMEORIGIN" always;
               add_header X-Content-Type-Options "nosniff" always;
               add_header X-XSS-Protection "1; mode=block" always;
               add_header Referrer-Policy "no-referrer-when-downgrade" always;
               add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://api.{{ domain_name }};" always;
-              
-              # Cache static assets
               location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
                   expires 1y;
                   add_header Cache-Control "public, immutable";
               }
-              
-              # Health check endpoints
               location /health {
                   access_log off;
                   return 200 "OK\n";
                   add_header Content-Type text/plain;
               }
-              
               location /ready {
                   access_log off;
                   return 200 "Ready\n";
                   add_header Content-Type text/plain;
               }
-              
-              # React app - all routes to index.html
               location / {
                   try_files $uri $uri/ /index.html;
               }
@@ -161,9 +149,9 @@
       spec:
         type: ClusterIP
         ports:
-        - port: 80
-          targetPort: 3000
-          protocol: TCP
+          - port: 80
+            targetPort: 3000
+            protocol: TCP
         selector:
           app: frontend
   delegate_to: "{{ groups['k3s_master'][0] }}"
@@ -185,31 +173,31 @@
           nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
       spec:
         tls:
-        - hosts:
-          - app.{{ domain_name }}
-          - www.{{ domain_name }}
-          secretName: frontend-tls
+          - hosts:
+              - app.{{ domain_name }}
+              - www.{{ domain_name }}
+            secretName: frontend-tls
         rules:
-        - host: app.{{ domain_name }}
-          http:
-            paths:
-            - path: /
-              pathType: Prefix
-              backend:
-                service:
-                  name: frontend-service
-                  port:
-                    number: 80
-        - host: www.{{ domain_name }}
-          http:
-            paths:
-            - path: /
-              pathType: Prefix
-              backend:
-                service:
-                  name: frontend-service
-                  port:
-                    number: 80
+          - host: app.{{ domain_name }}
+            http:
+              paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: frontend-service
+                      port:
+                        number: 80
+          - host: www.{{ domain_name }}
+            http:
+              paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: frontend-service
+                      port:
+                        number: 80
   delegate_to: "{{ groups['k3s_master'][0] }}"
   run_once: true
 
@@ -230,17 +218,17 @@
         minReplicas: 2
         maxReplicas: 4
         metrics:
-        - type: Resource
-          resource:
-            name: cpu
-            target:
-              type: Utilization
-              averageUtilization: 70
-        - type: Resource
-          resource:
-            name: memory
-            target:
-              type: Utilization
-              averageUtilization: 80
+          - type: Resource
+            resource:
+              name: cpu
+              target:
+                type: Utilization
+                averageUtilization: 70
+          - type: Resource
+            resource:
+              name: memory
+              target:
+                type: Utilization
+                averageUtilization: 80
   delegate_to: "{{ groups['k3s_master'][0] }}"
   run_once: true

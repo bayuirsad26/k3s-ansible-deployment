@@ -1,16 +1,17 @@
 ---
 - name: Create monitoring directory
-  file:
+  ansible.builtin.file:
     path: /opt/monitoring
     state: directory
     owner: "{{ ansible_user }}"
     group: "{{ ansible_user }}"
+    mode: '0755'
 
 - name: Install Docker
-  include_tasks: install-docker.yml
+  ansible.builtin.include_tasks: install-docker.yml
 
 - name: Deploy Prometheus
-  docker_container:
+  community.docker.docker_container:
     name: prometheus
     image: "prom/prometheus:v{{ prometheus_version }}"
     state: started
@@ -29,7 +30,7 @@
       - '--web.enable-lifecycle'
 
 - name: Deploy Grafana
-  docker_container:
+  community.docker.docker_container:
     name: grafana
     image: "grafana/grafana:{{ grafana_version }}"
     state: started
@@ -39,13 +40,13 @@
     volumes:
       - grafana_data:/var/lib/grafana
       - /opt/monitoring/grafana/provisioning:/etc/grafana/provisioning
-    environment:
+    env:
       GF_SECURITY_ADMIN_PASSWORD: "{{ grafana_admin_password }}"
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_INSTALL_PLUGINS: "grafana-piechart-panel,grafana-clock-panel"
 
 - name: Deploy Loki
-  docker_container:
+  community.docker.docker_container:
     name: loki
     image: "grafana/loki:{{ loki_version }}"
     state: started
@@ -58,7 +59,7 @@
     command: "-config.file=/etc/loki/loki-config.yml"
 
 - name: Deploy AlertManager
-  docker_container:
+  community.docker.docker_container:
     name: alertmanager
     image: "prom/alertmanager:latest"
     state: started
@@ -70,19 +71,22 @@
       - alertmanager_data:/alertmanager
 
 - name: Configure Prometheus scrape configs
-  template:
+  ansible.builtin.template:
     src: prometheus.yml.j2
     dest: /opt/monitoring/prometheus/prometheus.yml
+    mode: '0644'
   notify: restart prometheus
 
 - name: Configure Grafana datasources
-  template:
+  ansible.builtin.template:
     src: grafana-datasources.yml.j2
     dest: /opt/monitoring/grafana/provisioning/datasources/datasources.yml
+    mode: '0644'
 
 - name: Import Grafana dashboards
-  copy:
+  ansible.builtin.copy:
     src: "{{ item }}"
     dest: /opt/monitoring/grafana/provisioning/dashboards/
+    mode: '0644'
   with_fileglob:
     - ../files/dashboards/*.json

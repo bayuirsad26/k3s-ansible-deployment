@@ -1,20 +1,20 @@
 ---
-- name: restart prometheus
-  docker_container:
+- name: Restart prometheus
+  community.docker.docker_container:
     name: prometheus
-    restart: yes
+    restart: true
 
-- name: restart grafana
-  docker_container:
+- name: Restart grafana
+  community.docker.docker_container:
     name: grafana
-    restart: yes
+    restart: true
 
-- name: restart loki
-  docker_container:
+- name: Restart loki
+  community.docker.docker_container:
     name: loki
-    restart: yes
+    restart: true
 
-- name: restart alertmanager
-  docker_container:
+- name: Restart alertmanager
+  community.docker.docker_container:
     name: alertmanager
-    restart: yes
+    restart: true

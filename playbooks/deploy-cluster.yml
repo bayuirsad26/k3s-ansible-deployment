@@ -1,55 +1,56 @@
 ---
 - name: Deploy K3s Cluster
   hosts: k3s_cluster
-  gather_facts: yes
-  become: yes
-  
+  gather_facts: true
+  become: true
+
   tasks:
     - name: Apply common configuration
-      include_role:
+      ansible.builtin.include_role:
         name: common
       tags: common
 
 - name: Deploy K3s Master
   hosts: k3s_master
-  gather_facts: yes
-  become: yes
-  
+  gather_facts: true
+  become: true
+
   tasks:
     - name: Generate cluster token if not exists
-      set_fact:
+      # This task runs only once to ensure all masters use the same token.
+      ansible.builtin.set_fact:
         k3s_token: "{{ lookup('password', '/tmp/k3s_token length=32 chars=ascii_letters,digits') }}"
       run_once: true
-      
+
     - name: Deploy K3s master node
-      include_role:
-        name: k3s-master
+      ansible.builtin.include_role:
+        name: k3s_master # Corrected role name
       tags: k3s-master
 
 - name: Deploy K3s Workers
   hosts: k3s_worker
-  gather_facts: yes
-  become: yes
+  gather_facts: true
+  become: true
   serial: 1
-  
+
   tasks:
     - name: Deploy K3s worker nodes
-      include_role:
-        name: k3s-worker
+      ansible.builtin.include_role:
+        name: k3s_worker # Corrected role name
       tags: k3s-worker
 
 - name: Verify Cluster Status
   hosts: k3s_master
-  gather_facts: no
-  become: yes
-  
+  gather_facts: false
+  become: true
+
   tasks:
     - name: Get cluster nodes
       kubernetes.core.k8s_info:
         api_version: v1
         kind: Node
       register: cluster_nodes
-      
+
     - name: Display cluster status
-      debug:
+      ansible.builtin.debug:
         msg: "Cluster has {{ cluster_nodes.resources | length }} nodes"

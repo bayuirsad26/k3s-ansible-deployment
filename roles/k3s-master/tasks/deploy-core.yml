@@ -1,23 +1,27 @@
 ---
 - name: Create manifests directory
-  file:
+  ansible.builtin.file:
     path: /var/lib/rancher/k3s/server/manifests
     state: directory
+    mode: '0755'
 
 - name: Deploy NGINX Ingress Controller
-  template:
+  ansible.builtin.template:
     src: nginx-ingress.yaml.j2
     dest: /var/lib/rancher/k3s/server/manifests/nginx-ingress.yaml
+    mode: '0644'
 
 - name: Deploy Metrics Server
-  template:
+  ansible.builtin.template:
     src: metrics-server.yaml.j2
     dest: /var/lib/rancher/k3s/server/manifests/metrics-server.yaml
+    mode: '0644'
 
 - name: Deploy Cert Manager
-  template:
+  ansible.builtin.template:
     src: cert-manager.yaml.j2
     dest: /var/lib/rancher/k3s/server/manifests/cert-manager.yaml
+    mode: '0644'
 
 - name: Wait for deployments to be ready
   kubernetes.core.k8s_info:
