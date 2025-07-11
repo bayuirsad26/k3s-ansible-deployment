@@ -1,0 +1,20 @@
+---
+- name: restart prometheus
+  docker_container:
+    name: prometheus
+    restart: yes
+
+- name: restart grafana
+  docker_container:
+    name: grafana
+    restart: yes
+
+- name: restart loki
+  docker_container:
+    name: loki
+    restart: yes
+
+- name: restart alertmanager
+  docker_container:
+    name: alertmanager
+    restart: yes

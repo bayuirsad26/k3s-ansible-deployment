@@ -1,0 +1,53 @@
+---
+- name: Create PostgreSQL namespace
+  kubernetes.core.k8s:
+    name: databases
+    api_version: v1
+    kind: Namespace
+    state: present
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Deploy PostgreSQL secrets
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: postgresql-secrets
+        namespace: databases
+      type: Opaque
+      data:
+        postgres-password: "{{ postgresql_password | b64encode }}"
+        replication-password: "{{ postgresql_replication_password | b64encode }}"
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Deploy PostgreSQL ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'postgresql-configmap.yaml.j2') | from_yaml }}"
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Deploy PostgreSQL StatefulSet
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'postgresql-statefulset.yaml.j2') | from_yaml }}"
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Deploy PostgreSQL Services
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'postgresql-service.yaml.j2') | from_yaml }}"
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Deploy PgBouncer for connection pooling
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'pgbouncer-deployment.yaml.j2') | from_yaml }}"
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true

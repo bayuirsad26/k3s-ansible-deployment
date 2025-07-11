@@ -1,0 +1,37 @@
+---
+- name: Create manifests directory
+  file:
+    path: /var/lib/rancher/k3s/server/manifests
+    state: directory
+
+- name: Deploy NGINX Ingress Controller
+  template:
+    src: nginx-ingress.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/nginx-ingress.yaml
+
+- name: Deploy Metrics Server
+  template:
+    src: metrics-server.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/metrics-server.yaml
+
+- name: Deploy Cert Manager
+  template:
+    src: cert-manager.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/cert-manager.yaml
+
+- name: Wait for deployments to be ready
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ item.namespace }}"
+    name: "{{ item.name }}"
+    wait: true
+    wait_condition:
+      type: Progressing
+      status: "True"
+      reason: NewReplicaSetAvailable
+    wait_timeout: 600
+  loop:
+    - { namespace: ingress-nginx, name: ingress-nginx-controller }
+    - { namespace: kube-system, name: metrics-server }
+    - { namespace: cert-manager, name: cert-manager }
