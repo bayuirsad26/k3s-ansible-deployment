@@ -1,0 +1,6 @@
+# K3s specific fail2ban filter
+[Definition]
+failregex = .*authentication failed.*<HOST>
+            .*unauthorized.*<HOST>
+            .*forbidden.*<HOST>
+ignoreregex =

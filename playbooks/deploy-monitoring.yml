@@ -1,0 +1,48 @@
+---
+- name: Deploy Monitoring Stack
+  hosts: monitoring_server
+  gather_facts: true
+  become: true
+
+  tasks:
+    - name: Deploy monitoring stack
+      ansible.builtin.include_role:
+        name: monitoring
+      tags: monitoring
+
+    - name: Wait for monitoring services to be ready
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host }}:{{ item.port }}{{ item.path }}"
+        status_code: "{{ item.status_code | default(200) }}"
+      retries: 30
+      delay: 10
+      loop:
+        - { port: 9090, path: '/-/ready', name: 'Prometheus' }
+        - { port: 3000, path: '/api/health', name: 'Grafana' }
+        - { port: 3100, path: '/ready', name: 'Loki' }
+        - { port: 9093, path: '/-/ready', name: 'AlertManager' }
+
+    - name: Configure Prometheus scrape targets
+      ansible.builtin.template:
+        src: prometheus-targets.yml.j2
+        dest: /opt/monitoring/prometheus/targets.yml
+        mode: '0644'
+      notify: restart prometheus
+
+    - name: Import default dashboards
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host }}:3000/api/dashboards/db"
+        method: POST
+        user: admin
+        password: "{{ grafana_admin_password }}"
+        force_basic_auth: true
+        body_format: json
+        body: "{{ lookup('file', item) | from_json }}"
+        status_code:
+          - 200 # OK - Dashboard created successfully
+          - 409 # Conflict - Dashboard with the same UID already exists
+          - 412 # Precondition Failed - Dashboard with the same name in the folder already exists
+      loop:
+        - roles/monitoring/files/dashboards/k3s-cluster.json
+        - roles/monitoring/files/dashboards/application-metrics.json
+        - roles/monitoring/files/dashboards/database-metrics.json

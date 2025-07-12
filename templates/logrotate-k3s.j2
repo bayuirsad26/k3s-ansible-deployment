@@ -1,0 +1,33 @@
+/var/log/k3s.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 root root
+    sharedscripts
+    postrotate
+        /bin/kill -USR1 $(cat /var/run/k3s.pid 2>/dev/null) 2>/dev/null || true
+    endscript
+}
+
+/var/lib/rancher/k3s/agent/logs/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 root root
+}
+
+/var/log/pods/*/*.log {
+    daily
+    rotate 3
+    compress
+    delaycompress
+    missingok
+    notifempty
+    maxsize 100M
+}

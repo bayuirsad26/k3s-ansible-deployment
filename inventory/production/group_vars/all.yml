@@ -30,3 +30,15 @@ backup_destination: "/backup"
 # Resource Limits
 worker_cpu_limit: "6000m"
 worker_memory_limit: "12Gi"
+
+# Add these variables
+postgresql_password: "{{ vault_postgresql_password }}"
+postgresql_replication_password: "{{ vault_postgresql_replication_password }}"
+redis_password: "{{ vault_redis_password }}"
+grafana_admin_password: "{{ vault_grafana_admin_password }}"
+app_db_password: "{{ vault_app_db_password }}"
+grafana_db_password: "{{ vault_grafana_db_password }}"
+
+# Frontend/Backend versions
+frontend_version: "latest"
+backend_version: "latest"

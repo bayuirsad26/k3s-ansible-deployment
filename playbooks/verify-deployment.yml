@@ -1,0 +1,59 @@
+---
+- name: Verify K3s deployment
+  hosts: k3s_master
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Check if kubectl is available
+      ansible.builtin.command: which kubectl
+      register: kubectl_check
+      changed_when: false
+      failed_when: kubectl_check.rc != 0
+
+    - name: Get cluster info
+      kubernetes.core.k8s_cluster_info:
+      register: cluster_info
+
+    - name: Display cluster version
+      ansible.builtin.debug:
+        msg: "Kubernetes version: {{ cluster_info.version.server.kubernetes.gitVersion }}"
+
+    - name: Check all nodes are ready
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+      register: nodes
+
+    - name: Verify all nodes are in Ready state
+      ansible.builtin.assert:
+        that:
+          - item.status.conditions | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length > 0
+        fail_msg: "Node {{ item.metadata.name }} is not ready"
+      loop: "{{ nodes.resources }}"
+
+    - name: Check critical pods are running
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ item }}"
+        field_selectors:
+          - status.phase!=Running
+      register: failing_pods
+      loop:
+        - kube-system
+        - ingress-nginx
+        - cert-manager
+
+    - name: Display failing pods if any
+      ansible.builtin.debug:
+        msg: "Failing pods in {{ item.item }}: {{ item.resources | map(attribute='metadata.name') | list }}"
+      when: item.resources | length > 0
+      loop: "{{ failing_pods.results }}"
+
+    - name: Test service connectivity
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}:6443/healthz"
+        validate_certs: false
+        status_code: 200
+      delegate_to: localhost

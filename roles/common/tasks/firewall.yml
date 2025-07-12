@@ -1,0 +1,49 @@
+---
+- name: Install UFW
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+
+- name: Configure UFW defaults
+  community.general.ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  loop:
+    - { direction: 'incoming', policy: 'deny' }
+    - { direction: 'outgoing', policy: 'allow' }
+
+- name: Configure UFW rules
+  community.general.ufw:
+    rule: "{{ item.rule }}"
+    port: "{{ item.port }}"
+    proto: "{{ item.proto | default('tcp') }}"
+    src: "{{ item.src | default('any') }}"
+    comment: "{{ item.comment | default('') }}"
+  loop:
+    - { rule: 'allow', port: '22', src: "{{ private_network_cidr }}", comment: 'SSH from private network' }
+    - { rule: 'allow', port: '6443', src: "{{ private_network_cidr }}", comment: 'K3s API' }
+    - { rule: 'allow', port: '10250', src: "{{ private_network_cidr }}", comment: 'Kubelet metrics' }
+    - { rule: 'allow', port: '2379:2380', src: "{{ private_network_cidr }}", comment: 'etcd' }
+    - { rule: 'allow', port: '30000:32767', comment: 'NodePort Services' }
+    - { rule: 'allow', port: '80', comment: 'HTTP' }
+    - { rule: 'allow', port: '443', comment: 'HTTPS' }
+    - { rule: 'allow', port: '8472', proto: 'udp', src: "{{ private_network_cidr }}", comment: 'VXLAN' }
+    - { rule: 'allow', port: '51820', proto: 'udp', src: "{{ private_network_cidr }}", comment: 'Wireguard' }
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+    logging: 'on'
+
+- name: Configure fail2ban
+  ansible.builtin.template:
+    src: fail2ban.local.j2
+    dest: /etc/fail2ban/jail.local
+    mode: '0644'
+  notify: restart fail2ban
+
+- name: Ensure fail2ban is started
+  ansible.builtin.systemd:
+    name: fail2ban
+    state: started
+    enabled: true

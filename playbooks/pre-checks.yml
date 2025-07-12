@@ -1,0 +1,53 @@
+---
+- name: Pre-deployment checks
+  hosts: all
+  gather_facts: true
+  become: false
+
+  tasks:
+    - name: Check connectivity
+      ansible.builtin.ping:
+
+    - name: Check OS version
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == "Ubuntu"
+          - ansible_distribution_version is version('22.04', '>=')
+        fail_msg: "This playbook requires Ubuntu 22.04 or later"
+
+    - name: Check available disk space
+      ansible.builtin.assert:
+        that:
+          - item.size_available > 10737418240  # 10GB in bytes
+        fail_msg: "Insufficient disk space on {{ item.mount }}"
+      loop: "{{ ansible_mounts }}"
+      when: item.mount in ['/', '/var']
+
+    - name: Check available memory
+      ansible.builtin.assert:
+        that:
+          - ansible_memory_mb.real.total > 4096
+        fail_msg: "Insufficient memory. At least 4GB required"
+
+    - name: Check CPU count
+      ansible.builtin.assert:
+        that:
+          - ansible_processor_vcpus >= 2
+        fail_msg: "Insufficient CPU. At least 2 vCPUs required"
+
+    - name: Check required ports are not in use
+      ansible.builtin.wait_for:
+        port: "{{ item }}"
+        state: stopped
+        timeout: 1
+      loop:
+        - 80
+        - 443
+        - 6443
+      ignore_errors: true
+      register: port_check
+
+    - name: Display port check results
+      ansible.builtin.debug:
+        msg: "Port {{ item.item }} is {{ 'available' if item.failed else 'in use' }}"
+      loop: "{{ port_check.results }}"
