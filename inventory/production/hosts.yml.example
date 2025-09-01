@@ -1,0 +1,31 @@
+---
+all:
+  children:
+    k3s_cluster:
+      children:
+        k3s_master:
+          hosts:
+            master-node:
+              ansible_host: 192.168.1.10  # Replace with your master node IP
+              ansible_user: ubuntu         # Replace with your SSH user
+              ansible_ssh_private_key_file: ~/.ssh/your-key.pem  # Replace with your SSH key path
+              k3s_node_name: master-node
+              k3s_control_node: true
+        k3s_worker:
+          hosts:
+            worker-node-1:
+              ansible_host: 192.168.1.11  # Replace with your worker 1 IP
+              ansible_user: ubuntu         # Replace with your SSH user
+              ansible_ssh_private_key_file: ~/.ssh/your-key.pem
+              k3s_node_name: worker-node-1
+            worker-node-2:
+              ansible_host: 192.168.1.12  # Replace with your worker 2 IP
+              ansible_user: ubuntu         # Replace with your SSH user
+              ansible_ssh_private_key_file: ~/.ssh/your-key.pem
+              k3s_node_name: worker-node-2
+    monitoring_server:
+      hosts:
+        monitoring:
+          ansible_host: 192.168.1.20     # Replace with your monitoring server IP
+          ansible_user: admin             # Replace with your SSH user
+          ansible_ssh_private_key_file: ~/.ssh/your-key.pem

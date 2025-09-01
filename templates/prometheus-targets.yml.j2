@@ -1,0 +1,35 @@
+- targets:
+{% for host in groups['k3s_cluster'] %}
+    - {{ hostvars[host]['ansible_host'] }}:9100
+{% endfor %}
+  labels:
+    job: node-exporter
+    environment: production
+
+- targets:
+{% for host in groups['k3s_master'] %}
+    - {{ hostvars[host]['ansible_host'] }}:6443
+{% endfor %}
+  labels:
+    job: kubernetes-apiservers
+    environment: production
+
+- targets:
+{% for host in groups['k3s_master'] %}
+    - {{ hostvars[host]['ansible_host'] }}:2379
+{% endfor %}
+  labels:
+    job: etcd
+    environment: production
+
+- targets:
+    - {{ hostvars[groups['k3s_master'][0]]['ansible_host'] }}:9187
+  labels:
+    job: postgresql-exporter
+    environment: production
+
+- targets:
+    - {{ hostvars[groups['k3s_master'][0]]['ansible_host'] }}:9121
+  labels:
+    job: redis-exporter
+    environment: production

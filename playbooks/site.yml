@@ -1,0 +1,23 @@
+---
+- name: Complete K3s Cluster Deployment
+  hosts: all
+  gather_facts: true
+  become: true
+
+  pre_tasks:
+    - name: Verify connectivity to all hosts
+      ansible.builtin.ping:
+
+    - name: Display deployment information
+      ansible.builtin.debug:
+        msg: "Deploying K3s cluster for Software House"
+
+  tasks:
+    - name: Run complete deployment
+      ansible.builtin.include_tasks: "{{ item }}"
+      loop:
+        - deploy-cluster.yml
+        - deploy-monitoring.yml
+        - deploy-apps.yml
+        - security-hardening.yml
+      tags: always

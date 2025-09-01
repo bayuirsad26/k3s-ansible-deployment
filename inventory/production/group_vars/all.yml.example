@@ -1,0 +1,44 @@
+---
+# Global Configuration
+timezone: Asia/Jakarta                    # Change to your timezone
+ntp_servers:
+  - 0.pool.ntp.org                       # Change to your preferred NTP servers
+  - 1.pool.ntp.org
+
+# Network Configuration
+private_network_cidr: "192.168.1.0/24"   # Change to match your network
+k3s_api_port: 6443
+
+# Software Versions (Update as needed)
+k3s_version: "v1.28.4+k3s2"
+postgresql_version: "15"
+redis_version: "7.2"
+ipfs_version: "0.24.0"
+prometheus_version: "2.48.0"
+grafana_version: "10.2.2"
+loki_version: "2.9.3"
+
+# Domain Configuration - CHANGE THESE!
+domain_name: "example.com"               # Replace with your domain
+email_address: "admin@example.com"       # Replace with your email
+
+# Backup Configuration
+backup_retention_days: 30
+backup_schedule: "0 2 * * *"             # 2:00 AM daily
+backup_destination: "/backup"
+
+# Resource Limits (Adjust based on your hardware)
+worker_cpu_limit: "6000m"
+worker_memory_limit: "12Gi"
+
+# Vault Variables (DO NOT put real passwords here)
+postgresql_password: "{{ vault_postgresql_password }}"
+postgresql_replication_password: "{{ vault_postgresql_replication_password }}"
+redis_password: "{{ vault_redis_password }}"
+grafana_admin_password: "{{ vault_grafana_admin_password }}"
+app_db_password: "{{ vault_app_db_password }}"
+grafana_db_password: "{{ vault_grafana_db_password }}"
+
+# Application versions
+frontend_version: "latest"
+backend_version: "latest"

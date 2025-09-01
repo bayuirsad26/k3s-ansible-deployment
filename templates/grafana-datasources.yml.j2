@@ -1,0 +1,29 @@
+# Remove hardcoded database names, use variables instead
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+
+  - name: PostgreSQL
+    type: postgres
+    url: pgbouncer.databases:5432
+    database: "{{ app_database_name | default('app_db') }}"  # Make dynamic
+    user: "{{ grafana_db_user | default('grafana_reader') }}"  # Make dynamic
+    secureJsonData:
+      password: "{{ grafana_db_password }}"
+    jsonData:
+      sslmode: 'disable'
+      maxOpenConns: 0
+      maxIdleConns: 2
+      connMaxLifetime: 14400

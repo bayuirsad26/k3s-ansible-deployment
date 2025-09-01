@@ -1,0 +1,148 @@
+---
+- name: Create security policies namespace
+  kubernetes.core.k8s:
+    name: security
+    api_version: v1
+    kind: Namespace
+    state: present
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Apply Pod Security Standards
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ item }}"
+        labels:
+          pod-security.kubernetes.io/enforce: restricted
+          pod-security.kubernetes.io/audit: restricted
+          pod-security.kubernetes.io/warn: restricted
+  loop:
+    - applications
+    - databases
+    - storage
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Create Network Policies
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ item }}"
+  loop:
+    - apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: default-deny-ingress
+        namespace: applications
+      spec:
+        podSelector: {}
+        policyTypes:
+          - Ingress
+    - apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: allow-frontend-to-backend
+        namespace: applications
+      spec:
+        podSelector:
+          matchLabels:
+            app: backend
+        policyTypes:
+          - Ingress
+        ingress:
+          - from:
+              - podSelector:
+                  matchLabels:
+                    app: frontend
+              - namespaceSelector:
+                  matchLabels:
+                    name: ingress-nginx
+            ports:
+              - protocol: TCP
+                port: 8080
+    - apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: allow-backend-to-database
+        namespace: databases
+      spec:
+        podSelector:
+          matchLabels:
+            app: postgresql
+        policyTypes:
+          - Ingress
+        ingress:
+          - from:
+              - namespaceSelector:
+                  matchLabels:
+                    name: applications
+                podSelector:
+                  matchLabels:
+                    app: backend
+            ports:
+              - protocol: TCP
+                port: 5432
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Create RBAC roles
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ item }}"
+  loop:
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: developer-role
+      rules:
+        - apiGroups: [""]
+          resources: ["pods", "services", "configmaps"]
+          verbs: ["get", "list", "watch"]
+        - apiGroups: ["apps"]
+          resources: ["deployments", "replicasets"]
+          verbs: ["get", "list", "watch"]
+        - apiGroups: [""]
+          resources: ["pods/log", "pods/exec"]
+          verbs: ["get", "create"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: admin-role
+      rules:
+        - apiGroups: ["*"]
+          resources: ["*"]
+          verbs: ["*"]
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Configure firewall rules on nodes
+  community.general.ufw:
+    rule: "{{ item.rule }}"
+    port: "{{ item.port }}"
+    proto: "{{ item.proto | default('tcp') }}"
+    src: "{{ item.src | default('any') }}"
+  loop:
+    - { rule: allow, port: 22, src: "{{ private_network_cidr }}" }
+    - { rule: allow, port: 6443, src: "{{ private_network_cidr }}" }
+    - { rule: allow, port: 10250, src: "{{ private_network_cidr }}" }
+    - { rule: allow, port: "30000:32767", proto: tcp }
+    - { rule: allow, port: 80 }
+    - { rule: allow, port: 443 }
+    - { rule: deny, port: 22, src: any }
+  notify: reload ufw
+
+- name: Enable fail2ban for SSH protection
+  ansible.builtin.systemd:
+    name: fail2ban
+    enabled: true
+    state: started
+
+- name: Configure fail2ban for k3s
+  ansible.builtin.template:
+    src: fail2ban-k3s.conf.j2
+    dest: /etc/fail2ban/jail.d/k3s.conf
+    mode: '0644'
+  notify: restart fail2ban

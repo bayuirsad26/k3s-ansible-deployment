@@ -1,0 +1,41 @@
+---
+- name: Create manifests directory
+  ansible.builtin.file:
+    path: /var/lib/rancher/k3s/server/manifests
+    state: directory
+    mode: '0755'
+
+- name: Deploy NGINX Ingress Controller
+  ansible.builtin.template:
+    src: nginx-ingress.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/nginx-ingress.yaml
+    mode: '0644'
+
+- name: Deploy Metrics Server
+  ansible.builtin.template:
+    src: metrics-server.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/metrics-server.yaml
+    mode: '0644'
+
+- name: Deploy Cert Manager
+  ansible.builtin.template:
+    src: cert-manager.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/cert-manager.yaml
+    mode: '0644'
+
+- name: Wait for deployments to be ready
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ item.namespace }}"
+    name: "{{ item.name }}"
+    wait: true
+    wait_condition:
+      type: Progressing
+      status: "True"
+      reason: NewReplicaSetAvailable
+    wait_timeout: 600
+  loop:
+    - { namespace: ingress-nginx, name: ingress-nginx-controller }
+    - { namespace: kube-system, name: metrics-server }
+    - { namespace: cert-manager, name: cert-manager }

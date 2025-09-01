@@ -1,0 +1,278 @@
+---
+- name: Create Backend API ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: backend-config
+        namespace: applications
+      data:
+        application.yaml: |
+          server:
+            port: 8080
+            compression:
+              enabled: true
+          spring:
+            application:
+              name: backend-api
+            datasource:
+              url: jdbc:postgresql://pgbouncer.databases:5432/
+              username: ${DB_USERNAME}
+              password: ${DB_PASSWORD}
+              hikari:
+                maximum-pool-size: 10
+                minimum-idle: 5
+                connection-timeout: 30000
+                idle-timeout: 600000
+                max-lifetime: 1800000
+            redis:
+              host: redis-sentinel.databases
+              port: 26379
+              sentinel:
+                master: mymaster
+                nodes:
+                  - redis-sentinel.databases:26379
+              lettuce:
+                pool:
+                  max-active: 8
+                  max-idle: 8
+                  min-idle: 0
+          management:
+            endpoints:
+              web:
+                exposure:
+                  include: health,info,metrics
+            metrics:
+              export:
+                prometheus:
+                  enabled: true
+          logging:
+            level:
+              root: INFO
+              id.softwarehouse: DEBUG
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Deploy Backend API
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: backend-api
+        namespace: applications
+        labels:
+          app: backend
+          tier: api
+      spec:
+        replicas: 2
+        strategy:
+          type: RollingUpdate
+          rollingUpdate:
+            maxSurge: 1
+            maxUnavailable: 0
+        selector:
+          matchLabels:
+            app: backend
+        template:
+          metadata:
+            labels:
+              app: backend
+              tier: api
+            annotations:
+              prometheus.io/scrape: "true"
+              prometheus.io/port: "8080"
+              prometheus.io/path: "/actuator/prometheus"
+          spec:
+            affinity:
+              podAntiAffinity:
+                preferredDuringSchedulingIgnoredDuringExecution:
+                  - weight: 100
+                    podAffinityTerm:
+                      labelSelector:
+                        matchExpressions:
+                          - key: app
+                            operator: In
+                            values:
+                              - backend
+                      topologyKey: kubernetes.io/hostname
+            containers:
+              - name: backend
+                image: "{{ registry_url }}/backend-api:{{ backend_version | default('latest') }}"
+                imagePullPolicy: Always
+                ports:
+                  - containerPort: 8080
+                    name: http
+                env:
+                  - name: JAVA_OPTS
+                    value: "-Xms1024m -Xmx2048m -XX:+UseG1GC -XX:MaxGCPauseMillis=100"
+                  - name: DB_USERNAME
+                    valueFrom:
+                      secretKeyRef:
+                        name: backend-secrets
+                        key: db-username
+                  - name: DB_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: backend-secrets
+                        key: db-password
+                  - name: REDIS_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: redis-secret
+                        key: password
+                  - name: JWT_SECRET
+                    valueFrom:
+                      secretKeyRef:
+                        name: backend-secrets
+                        key: jwt-secret
+                resources:
+                  requests:
+                    cpu: 750m
+                    memory: 1.5Gi
+                  limits:
+                    cpu: 1500m
+                    memory: 3Gi
+                livenessProbe:
+                  httpGet:
+                    path: /actuator/health/liveness
+                    port: 8080
+                  initialDelaySeconds: 60
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                readinessProbe:
+                  httpGet:
+                    path: /actuator/health/readiness
+                    port: 8080
+                  initialDelaySeconds: 10
+                  periodSeconds: 5
+                  timeoutSeconds: 3
+                volumeMounts:
+                  - name: config
+                    mountPath: /app/config
+                  - name: logs
+                    mountPath: /app/logs
+            volumes:
+              - name: config
+                configMap:
+                  name: backend-config
+              - name: logs
+                emptyDir: {}
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Create Backend Service
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: backend-service
+        namespace: applications
+        labels:
+          app: backend
+      spec:
+        type: ClusterIP
+        ports:
+          - port: 80
+            targetPort: 8080
+            protocol: TCP
+        selector:
+          app: backend
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Create Backend Ingress
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: backend-ingress
+        namespace: applications
+        annotations:
+          kubernetes.io/ingress.class: nginx
+          cert-manager.io/cluster-issuer: letsencrypt-prod
+          nginx.ingress.kubernetes.io/ssl-redirect: "true"
+          nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+          nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+          nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+          nginx.ingress.kubernetes.io/rate-limit: "100"
+          nginx.ingress.kubernetes.io/cors-enable: "true"
+          nginx.ingress.kubernetes.io/cors-allow-origin: "https://app.{{ domain_name }}"
+          nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+          nginx.ingress.kubernetes.io/cors-allow-headers: >-
+            DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,
+            If-Modified-Since,Cache-Control,Content-Type,Authorization
+      spec:
+        tls:
+          - hosts:
+              - api.{{ domain_name }}
+            secretName: backend-tls
+        rules:
+          - host: api.{{ domain_name }}
+            http:
+              paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: backend-service
+                      port:
+                        number: 80
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Create Backend HPA
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: backend-hpa
+        namespace: applications
+      spec:
+        scaleTargetRef:
+          apiVersion: apps/v1
+          kind: Deployment
+          name: backend-api
+        minReplicas: 2
+        maxReplicas: 4
+        metrics:
+          - type: Resource
+            resource:
+              name: cpu
+              target:
+                type: Utilization
+                averageUtilization: 70
+          - type: Resource
+            resource:
+              name: memory
+              target:
+                type: Utilization
+                averageUtilization: 80
+        behavior:
+          scaleDown:
+            stabilizationWindowSeconds: 300
+            policies:
+              - type: Percent
+                value: 10
+                periodSeconds: 60
+          scaleUp:
+            stabilizationWindowSeconds: 0
+            policies:
+              - type: Percent
+                value: 100
+                periodSeconds: 15
+              - type: Pods
+                value: 2
+                periodSeconds: 15
+            selectPolicy: Max
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true

@@ -1,0 +1,150 @@
+---
+- name: Create backup directory structure
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0750'
+    owner: root
+    group: root
+  loop:
+    - "{{ backup_destination }}"
+    - "{{ backup_destination }}/etcd"
+    - "{{ backup_destination }}/postgresql"
+    - "{{ backup_destination }}/redis"
+    - "{{ backup_destination }}/configs"
+    - "{{ backup_destination }}/volumes"
+
+- name: Deploy Velero for cluster backup
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: velero
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Install Velero CLI
+  ansible.builtin.get_url:
+    url: "https://github.com/vmware-tanzu/velero/releases/download/v1.12.1/velero-v1.12.1-linux-amd64.tar.gz"
+    dest: /tmp/velero.tar.gz
+    mode: '0644'
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+
+- name: Extract and install Velero
+  ansible.builtin.unarchive:
+    src: /tmp/velero.tar.gz
+    dest: /tmp
+    remote_src: true
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+
+- name: Copy Velero binary
+  ansible.builtin.copy:
+    src: /tmp/velero-v1.12.1-linux-amd64/velero
+    dest: /usr/local/bin/velero
+    mode: '0755'
+    remote_src: true
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+
+- name: Create backup CronJobs
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ item }}"
+  loop:
+    - apiVersion: batch/v1
+      kind: CronJob
+      metadata:
+        name: etcd-backup
+        namespace: kube-system
+      spec:
+        schedule: "{{ backup_schedule }}"
+        jobTemplate:
+          spec:
+            template:
+              spec:
+                hostNetwork: true
+                restartPolicy: OnFailure
+                containers:
+                  - name: etcd-backup
+                    image: rancher/k3s:{{ k3s_version }}
+                    command:
+                      - /bin/sh
+                      - -c
+                      - |
+                        DATE=$(date +%Y%m%d_%H%M%S)
+                        k3s etcd-snapshot save --name "etcd-backup-${DATE}"
+                        k3s etcd-snapshot list
+                    volumeMounts:
+                      - name: backup
+                        mountPath: /backup
+                volumes:
+                  - name: backup
+                    hostPath:
+                      path: "{{ backup_destination }}/etcd"
+    - apiVersion: batch/v1
+      kind: CronJob
+      metadata:
+        name: postgresql-backup
+        namespace: databases
+      spec:
+        schedule: "{{ backup_schedule }}"
+        jobTemplate:
+          spec:
+            template:
+              spec:
+                restartPolicy: OnFailure
+                containers:
+                  - name: pg-backup
+                    image: postgres:{{ postgresql_version }}-alpine
+                    command:
+                      - /bin/sh
+                      - -c
+                      - |
+                        DATE=$(date +%Y%m%d_%H%M%S)
+                        PGPASSWORD=$POSTGRES_PASSWORD pg_dumpall -h postgresql -U postgres > /backup/postgresql-${DATE}.sql
+                        gzip /backup/postgresql-${DATE}.sql
+                        find /backup -name "*.gz" -mtime +{{ backup_retention_days }} -delete
+                    env:
+                      - name: POSTGRES_PASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: postgresql-secrets
+                            key: postgres-password
+                    volumeMounts:
+                      - name: backup
+                        mountPath: /backup
+                volumes:
+                  - name: backup
+                    persistentVolumeClaim:
+                      claimName: backup-pvc
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Create backup monitoring alerts
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: backup-alerts
+        namespace: monitoring
+      data:
+        alerts.yaml: |
+          groups:
+          - name: backup.rules
+            interval: 60s
+            rules:
+            - alert: BackupFailed
+              expr: kube_cronjob_status_last_schedule_time{cronjob=~".*-backup"} < (time() - 86400)
+              for: 5m
+              labels:
+                severity: critical
+              annotations:
+                summary: "Backup job {{ '{{' }} $labels.cronjob {{ '}}' }} has not run in 24 hours"
+                description: >-
+                  The backup job {{ '{{' }} $labels.cronjob {{ '}}' }} in namespace {{ '{{' }} $labels.namespace {{ '}}' }}
+                  has not executed successfully in the last 24 hours.
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true

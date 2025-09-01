@@ -1,0 +1,73 @@
+# Ansible
+.ansible/
+*.retry
+/tmp/
+.vault_pass
+
+# Kubernetes
+*.kubeconfig
+kubeconfig
+
+# Backup files
+*.bak
+*.backup
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+.python-version
+
+# Terraform (if used)
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Secrets
+**/vault.yml
+**/secrets.yml
+
+# Production configurations
+inventory/production/hosts.yml
+inventory/production/group_vars/vault.yml
+inventory/production/group_vars/all.yml
+.vault_pass
+
+# Environment specific files
+*.prod.yml
+*.staging.yml
+*-secrets.yml
+
+# Local development
+.env
+.env.local
+.env.production
+
+# SSH keys
+*.pem
+*.key
+id_rsa*
+known_hosts
+
+# Terraform state (if used)
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/

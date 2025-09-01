@@ -1,0 +1,275 @@
+---
+- name: Create Redis namespace
+  kubernetes.core.k8s:
+    name: databases
+    api_version: v1
+    kind: Namespace
+    state: present
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Create Redis ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: redis-config
+        namespace: databases
+      data:
+        redis.conf: |
+          bind 0.0.0.0
+          protected-mode yes
+          port 6379
+          tcp-backlog 511
+          timeout 0
+          tcp-keepalive 300
+          daemonize no
+          supervised no
+          pidfile /var/run/redis_6379.pid
+          loglevel notice
+          logfile ""
+          databases 16
+          always-show-logo yes
+          save 900 1
+          save 300 10
+          save 60 10000
+          stop-writes-on-bgsave-error yes
+          rdbcompression yes
+          rdbchecksum yes
+          dbfilename dump.rdb
+          dir /data
+          replica-serve-stale-data yes
+          replica-read-only yes
+          repl-diskless-sync no
+          repl-diskless-sync-delay 5
+          repl-disable-tcp-nodelay no
+          replica-priority 100
+          maxmemory 800mb
+          maxmemory-policy allkeys-lru
+          appendonly yes
+          appendfilename "appendonly.aof"
+          appendfsync everysec
+          no-appendfsync-on-rewrite no
+          auto-aof-rewrite-percentage 100
+          auto-aof-rewrite-min-size 64mb
+          aof-load-truncated yes
+          aof-use-rdb-preamble yes
+          lua-time-limit 5000
+          slowlog-log-slower-than 10000
+          slowlog-max-len 128
+          latency-monitor-threshold 0
+          notify-keyspace-events ""
+          hash-max-ziplist-entries 512
+          hash-max-ziplist-value 64
+          list-max-ziplist-size -2
+          list-compress-depth 0
+          set-max-intset-entries 512
+          zset-max-ziplist-entries 128
+          zset-max-ziplist-value 64
+          hll-sparse-max-bytes 3000
+          stream-node-max-bytes 4096
+          stream-node-max-entries 100
+          activerehashing yes
+          client-output-buffer-limit normal 0 0 0
+          client-output-buffer-limit replica 256mb 64mb 60
+          client-output-buffer-limit pubsub 32mb 8mb 60
+          hz 10
+          dynamic-hz yes
+          aof-rewrite-incremental-fsync yes
+          rdb-save-incremental-fsync yes
+        sentinel.conf: |
+          port 26379
+          bind 0.0.0.0
+          daemonize no
+          pidfile /var/run/redis-sentinel.pid
+          logfile ""
+          dir /tmp
+          sentinel monitor mymaster redis-0.redis 6379 2
+          sentinel down-after-milliseconds mymaster 10000
+          sentinel parallel-syncs mymaster 1
+          sentinel failover-timeout mymaster 30000
+          sentinel auth-pass mymaster {{ redis_password }}
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Deploy Redis StatefulSet
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: redis
+        namespace: databases
+      spec:
+        serviceName: redis
+        replicas: 2
+        selector:
+          matchLabels:
+            app: redis
+        template:
+          metadata:
+            labels:
+              app: redis
+          spec:
+            affinity:
+              podAntiAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  - labelSelector:
+                      matchExpressions:
+                        - key: app
+                          operator: In
+                          values:
+                            - redis
+                    topologyKey: kubernetes.io/hostname
+            containers:
+              - name: redis
+                image: redis:{{ redis_version }}-alpine
+                command:
+                  - redis-server
+                  - /etc/redis/redis.conf
+                  - --requirepass
+                  - "$(REDIS_PASSWORD)"
+                env:
+                  - name: REDIS_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: redis-secret
+                        key: password
+                ports:
+                  - containerPort: 6379
+                    name: redis
+                resources:
+                  requests:
+                    cpu: 300m
+                    memory: 512Mi
+                  limits:
+                    cpu: 500m
+                    memory: 1Gi
+                volumeMounts:
+                  - name: data
+                    mountPath: /data
+                  - name: config
+                    mountPath: /etc/redis
+                livenessProbe:
+                  tcpSocket:
+                    port: redis
+                  initialDelaySeconds: 30
+                  periodSeconds: 10
+                readinessProbe:
+                  exec:
+                    command:
+                      - redis-cli
+                      - ping
+                  initialDelaySeconds: 5
+                  periodSeconds: 3
+              - name: sentinel
+                image: redis:{{ redis_version }}-alpine
+                command:
+                  - redis-sentinel
+                  - /etc/redis/sentinel.conf
+                ports:
+                  - containerPort: 26379
+                    name: sentinel
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 128Mi
+                  limits:
+                    cpu: 200m
+                    memory: 256Mi
+                volumeMounts:
+                  - name: config
+                    mountPath: /etc/redis
+            volumes:
+              - name: config
+                configMap:
+                  name: redis-config
+        volumeClaimTemplates:
+          - metadata:
+              name: data
+            spec:
+              accessModes: ["ReadWriteOnce"]
+              resources:
+                requests:
+                  storage: 10Gi
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Create Redis Services
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ item }}"
+  loop:
+    - apiVersion: v1
+      kind: Service
+      metadata:
+        name: redis
+        namespace: databases
+      spec:
+        clusterIP: None
+        ports:
+          - port: 6379
+            targetPort: 6379
+            name: redis
+        selector:
+          app: redis
+    - apiVersion: v1
+      kind: Service
+      metadata:
+        name: redis-sentinel
+        namespace: databases
+      spec:
+        type: ClusterIP
+        ports:
+          - port: 26379
+            targetPort: 26379
+            name: sentinel
+        selector:
+          app: redis
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Deploy Redis Exporter for monitoring
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: redis-exporter
+        namespace: databases
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: redis-exporter
+        template:
+          metadata:
+            labels:
+              app: redis-exporter
+          spec:
+            containers:
+              - name: redis-exporter
+                image: oliver006/redis_exporter:latest
+                env:
+                  - name: REDIS_ADDR
+                    value: redis:6379
+                  - name: REDIS_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: redis-secret
+                        key: password
+                ports:
+                  - containerPort: 9121
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 128Mi
+                  limits:
+                    cpu: 200m
+                    memory: 256Mi
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true

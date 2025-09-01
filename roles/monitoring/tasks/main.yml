@@ -1,0 +1,92 @@
+---
+- name: Create monitoring directory
+  ansible.builtin.file:
+    path: /opt/monitoring
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+
+- name: Install Docker
+  ansible.builtin.include_tasks: install-docker.yml
+
+- name: Deploy Prometheus
+  community.docker.docker_container:
+    name: prometheus
+    image: "prom/prometheus:v{{ prometheus_version }}"
+    state: started
+    restart_policy: always
+    ports:
+      - "9090:9090"
+    volumes:
+      - /opt/monitoring/prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+
+- name: Deploy Grafana
+  community.docker.docker_container:
+    name: grafana
+    image: "grafana/grafana:{{ grafana_version }}"
+    state: started
+    restart_policy: always
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - /opt/monitoring/grafana/provisioning:/etc/grafana/provisioning
+    env:
+      GF_SECURITY_ADMIN_PASSWORD: "{{ grafana_admin_password }}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: "grafana-piechart-panel,grafana-clock-panel"
+
+- name: Deploy Loki
+  community.docker.docker_container:
+    name: loki
+    image: "grafana/loki:{{ loki_version }}"
+    state: started
+    restart_policy: always
+    ports:
+      - "3100:3100"
+    volumes:
+      - /opt/monitoring/loki:/etc/loki
+      - loki_data:/loki
+    command: "-config.file=/etc/loki/loki-config.yml"
+
+- name: Deploy AlertManager
+  community.docker.docker_container:
+    name: alertmanager
+    image: "prom/alertmanager:latest"
+    state: started
+    restart_policy: always
+    ports:
+      - "9093:9093"
+    volumes:
+      - /opt/monitoring/alertmanager:/etc/alertmanager
+      - alertmanager_data:/alertmanager
+
+- name: Configure Prometheus scrape configs
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: /opt/monitoring/prometheus/prometheus.yml
+    mode: '0644'
+  notify: restart prometheus
+
+- name: Configure Grafana datasources
+  ansible.builtin.template:
+    src: grafana-datasources.yml.j2
+    dest: /opt/monitoring/grafana/provisioning/datasources/datasources.yml
+    mode: '0644'
+
+- name: Import Grafana dashboards
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /opt/monitoring/grafana/provisioning/dashboards/
+    mode: '0644'
+  with_fileglob:
+    - ../files/dashboards/*.json

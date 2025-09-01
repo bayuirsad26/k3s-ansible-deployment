@@ -1,0 +1,44 @@
+---
+- name: Check if k3s is already installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary
+
+- name: Download k3s installer
+  ansible.builtin.get_url:
+    url: https://get.k3s.io
+    dest: /tmp/k3s-install.sh
+    mode: '0755'
+  when: not k3s_binary.stat.exists
+
+- name: Get k3s token from master
+  ansible.builtin.set_fact:
+    k3s_token: "{{ hostvars[groups['k3s_master'][0]]['k3s_token'] }}"
+
+- name: Install k3s agent
+  ansible.builtin.shell: |
+    INSTALL_K3S_VERSION="{{ k3s_version }}" \
+    INSTALL_K3S_EXEC="agent {{ k3s_agent_args | join(' ') }}" \
+    K3S_URL="https://{{ hostvars[groups['k3s_master'][0]]['ansible_host'] }}:6443" \
+    K3S_TOKEN="{{ k3s_token }}" \
+    K3S_NODE_NAME="{{ k3s_node_name }}" \
+    /tmp/k3s-install.sh
+  when: not k3s_binary.stat.exists
+  changed_when: false
+
+- name: Wait for node to join cluster
+  ansible.builtin.pause:
+    seconds: 30
+
+- name: Label worker nodes
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Node
+      metadata:
+        name: "{{ k3s_node_name }}"
+        labels:
+          node-role.kubernetes.io/worker: "true"
+          node.softwarehouse.id/type: "worker"
+  delegate_to: "{{ groups['k3s_master'][0] }}"

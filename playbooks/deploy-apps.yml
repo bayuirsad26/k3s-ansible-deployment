@@ -1,0 +1,47 @@
+---
+- name: Deploy Application Stack
+  hosts: k3s_master
+  gather_facts: true
+  become: true
+
+  tasks:
+    - name: Deploy databases
+      block:
+        - name: Deploy PostgreSQL HA
+          ansible.builtin.include_role:
+            name: postgresql
+          tags: postgresql
+
+        - name: Deploy Redis Sentinel
+          ansible.builtin.include_role:
+            name: redis
+          tags: redis
+
+    - name: Deploy IPFS nodes
+      ansible.builtin.include_role:
+        name: ipfs
+      tags: ipfs
+
+    - name: Deploy application services
+      block:
+        - name: Deploy backend services
+          ansible.builtin.include_role:
+            name: backend
+          tags: backend
+
+        - name: Deploy frontend applications
+          ansible.builtin.include_role:
+            name: frontend
+          tags: frontend
+
+    - name: Verify deployments
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: applications
+      register: app_deployments
+
+    - name: Display deployment status
+      ansible.builtin.debug:
+        msg: "{{ item.metadata.name }} - Replicas: {{ item.status.readyReplicas }}/{{ item.spec.replicas }}"
+      loop: "{{ app_deployments.resources }}"

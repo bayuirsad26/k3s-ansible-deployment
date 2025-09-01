@@ -1,0 +1,56 @@
+---
+- name: Deploy K3s Cluster
+  hosts: k3s_cluster
+  gather_facts: true
+  become: true
+
+  tasks:
+    - name: Apply common configuration
+      ansible.builtin.include_role:
+        name: common
+      tags: common
+
+- name: Deploy K3s Master
+  hosts: k3s_master
+  gather_facts: true
+  become: true
+  strategy: linear
+
+  tasks:
+    - name: Generate cluster token if not exists
+      ansible.builtin.set_fact:
+        k3s_token: "{{ lookup('password', '/tmp/k3s_token length=32 chars=ascii_letters,digits') }}"
+      run_once: true  # noqa run-once[task]
+
+    - name: Deploy K3s master node
+      ansible.builtin.include_role:
+        name: k3s_master
+      tags: k3s-master
+
+- name: Deploy K3s Workers
+  hosts: k3s_worker
+  gather_facts: true
+  become: true
+  serial: 1
+
+  tasks:
+    - name: Deploy K3s worker nodes
+      ansible.builtin.include_role:
+        name: k3s_worker
+      tags: k3s-worker
+
+- name: Verify Cluster Status
+  hosts: k3s_master
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Get cluster nodes
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+      register: cluster_nodes
+
+    - name: Display cluster status
+      ansible.builtin.debug:
+        msg: "Cluster has {{ cluster_nodes.resources | length }} nodes"

@@ -1,0 +1,240 @@
+---
+- name: Create applications namespace
+  kubernetes.core.k8s:
+    name: applications
+    api_version: v1
+    kind: Namespace
+    state: present
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Deploy sample React frontend application
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: frontend-app
+        namespace: applications
+        labels:
+          app: frontend
+          tier: presentation
+      spec:
+        replicas: 2
+        strategy:
+          type: RollingUpdate
+          rollingUpdate:
+            maxSurge: 1
+            maxUnavailable: 0
+        selector:
+          matchLabels:
+            app: frontend
+        template:
+          metadata:
+            labels:
+              app: frontend
+              tier: presentation
+          spec:
+            affinity:
+              podAntiAffinity:
+                preferredDuringSchedulingIgnoredDuringExecution:
+                  - weight: 100
+                    podAffinityTerm:
+                      labelSelector:
+                        matchExpressions:
+                          - key: app
+                            operator: In
+                            values:
+                              - frontend
+                      topologyKey: kubernetes.io/hostname
+            containers:
+              - name: frontend
+                image: "{{ registry_url }}/frontend-app:{{ frontend_version | default('latest') }}"
+                imagePullPolicy: Always
+                ports:
+                  - containerPort: 3000
+                    name: http
+                env:
+                  - name: NODE_ENV
+                    value: production
+                  - name: REACT_APP_API_URL
+                    value: "https://api.{{ domain_name }}"
+                  - name: REACT_APP_VERSION
+                    value: "{{ frontend_version | default('latest') }}"
+                resources:
+                  requests:
+                    cpu: 500m
+                    memory: 1Gi
+                  limits:
+                    cpu: 1000m
+                    memory: 2Gi
+                livenessProbe:
+                  httpGet:
+                    path: /health
+                    port: 3000
+                  initialDelaySeconds: 30
+                  periodSeconds: 10
+                readinessProbe:
+                  httpGet:
+                    path: /ready
+                    port: 3000
+                  initialDelaySeconds: 5
+                  periodSeconds: 5
+                volumeMounts:
+                  - name: nginx-config
+                    mountPath: /etc/nginx/conf.d
+            volumes:
+              - name: nginx-config
+                configMap:
+                  name: frontend-nginx-config
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Create Frontend Nginx ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: frontend-nginx-config
+        namespace: applications
+      data:
+        default.conf: |
+          server {
+              listen 3000;
+              server_name _;
+              root /usr/share/nginx/html;
+              index index.html;
+              gzip on;
+              gzip_vary on;
+              gzip_min_length 1024;
+              gzip_types text/plain text/css text/xml text/javascript application/javascript application/xml+rss application/json;
+              add_header X-Frame-Options "SAMEORIGIN" always;
+              add_header X-Content-Type-Options "nosniff" always;
+              add_header X-XSS-Protection "1; mode=block" always;
+              add_header Referrer-Policy "no-referrer-when-downgrade" always;
+              add_header Content-Security-Policy
+                "default-src 'self';
+                script-src 'self' 'unsafe-inline' 'unsafe-eval';
+                style-src 'self' 'unsafe-inline';
+                img-src 'self' data: https:;
+                font-src 'self' data:;
+                connect-src 'self' https://api.{{ domain_name }};" always;
+              location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+                  expires 1y;
+                  add_header Cache-Control "public, immutable";
+              }
+              location /health {
+                  access_log off;
+                  return 200 "OK\n";
+                  add_header Content-Type text/plain;
+              }
+              location /ready {
+                  access_log off;
+                  return 200 "Ready\n";
+                  add_header Content-Type text/plain;
+              }
+              location / {
+                  try_files $uri $uri/ /index.html;
+              }
+          }
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Create Frontend Service
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: frontend-service
+        namespace: applications
+      spec:
+        type: ClusterIP
+        ports:
+          - port: 80
+            targetPort: 3000
+            protocol: TCP
+        selector:
+          app: frontend
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Create Frontend Ingress
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: frontend-ingress
+        namespace: applications
+        annotations:
+          kubernetes.io/ingress.class: nginx
+          cert-manager.io/cluster-issuer: letsencrypt-prod
+          nginx.ingress.kubernetes.io/ssl-redirect: "true"
+          nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+      spec:
+        tls:
+          - hosts:
+              - app.{{ domain_name }}
+              - www.{{ domain_name }}
+            secretName: frontend-tls
+        rules:
+          - host: app.{{ domain_name }}
+            http:
+              paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: frontend-service
+                      port:
+                        number: 80
+          - host: www.{{ domain_name }}
+            http:
+              paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: frontend-service
+                      port:
+                        number: 80
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true
+
+- name: Create Frontend HPA
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: frontend-hpa
+        namespace: applications
+      spec:
+        scaleTargetRef:
+          apiVersion: apps/v1
+          kind: Deployment
+          name: frontend-app
+        minReplicas: 2
+        maxReplicas: 4
+        metrics:
+          - type: Resource
+            resource:
+              name: cpu
+              target:
+                type: Utilization
+                averageUtilization: 70
+          - type: Resource
+            resource:
+              name: memory
+              target:
+                type: Utilization
+                averageUtilization: 80
+  delegate_to: "{{ groups['k3s_master'][0] }}"
+  run_once: true

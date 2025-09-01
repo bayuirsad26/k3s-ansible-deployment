@@ -1,0 +1,52 @@
+---
+- name: Backup and Restore Operations
+  hosts: k3s_master
+  gather_facts: true
+  become: true
+  vars:
+    backup_timestamp: "{{ ansible_date_time.epoch }}"
+
+  tasks:
+    - name: Backup operations
+      tags: backup
+      block:
+        - name: Create backup directory
+          ansible.builtin.file:
+            path: "{{ backup_destination }}/{{ backup_timestamp }}"
+            state: directory
+            mode: '0750'
+
+        - name: Backup etcd
+          ansible.builtin.shell: |
+            k3s etcd-snapshot save \
+              --name "etcd-backup-{{ backup_timestamp }}" \
+              --dir "{{ backup_destination }}/{{ backup_timestamp }}"
+          register: etcd_backup
+          changed_when: false
+
+        - name: Backup PostgreSQL databases
+          kubernetes.core.k8s_exec:
+            namespace: databases
+            pod: postgresql-0
+            container: postgresql
+            command: |
+              pg_dumpall -U postgres > /backup/postgresql-{{ backup_timestamp }}.sql
+
+        - name: Backup application data
+          ansible.builtin.include_role:
+            name: backup
+
+    - name: Restore operations
+      tags: restore
+      block:
+        - name: List available backups
+          ansible.builtin.find:
+            paths: "{{ backup_destination }}"
+            file_type: directory
+          register: available_backups
+
+        - name: Restore from backup
+          ansible.builtin.include_role:
+            name: backup
+            tasks_from: restore
+          when: restore_timestamp is defined
